@@ -57,12 +57,17 @@ jobs:
         id: coverage
         run: |
           cd ServiCiudadCali
-          mvn jacoco:check
           
-          # Extraer porcentaje de cobertura del reporte
+          # Extraer porcentaje de cobertura del reporte (ya generado por mvn test)
           COVERAGE=$(grep -oP 'Total.*?<td class="ctr2">\K[0-9]+' target/site/jacoco/index.html | head -1)
           echo "percentage=$COVERAGE" >> $GITHUB_OUTPUT
           echo "📊 Cobertura de código: $COVERAGE%"
+          
+          # Verificar umbral con mvn verify (incluye jacoco:check)
+          if ! mvn verify -DskipTests; then
+            echo "❌ ERROR: Verificación de cobertura falló"
+            exit 1
+          fi
           
           if [ "$COVERAGE" -lt "$COVERAGE_THRESHOLD" ]; then
             echo "❌ ERROR: Cobertura $COVERAGE% es menor que el umbral $COVERAGE_THRESHOLD%"
