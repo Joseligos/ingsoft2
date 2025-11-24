@@ -50,8 +50,8 @@ jobs:
 
             - name: Construir imagen Docker
               run: |
-                # Construir desde la raíz del repo a diferencia del render.
-                docker build -t mi-app:latest -f ServiCiudadCali/Dockerfile .
+                cd ServiCiudadCali
+                docker build -t mi-app:latest .
 
 
     deploy:
