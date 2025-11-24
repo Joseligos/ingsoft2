@@ -75,10 +75,16 @@ run_test "Health Check" "/actuator/health" 200
 # Test 2: Info endpoint
 run_test "Info Endpoint" "/actuator/info" 200
 
-# Test 3: Consultar deuda sin cliente (404 esperado)
-run_test "Deuda sin cliente existente" "/api/deudaConsolidada/ObtenerDeudaConsolidadaPorClienteId/99999" 404
+# Test 3: Metrics endpoint (monitoreo)
+run_test "Metrics Endpoint" "/actuator/metrics" 200
 
-# Test 4: Root endpoint (si existe)
+# Test 4: Consultar deuda con cliente conocido (caso exitoso)
+run_test "Deuda cliente existente" "/api/deudaConsolidada/ObtenerDeudaConsolidadaPorClienteId/1106514392" 200
+
+# Test 5: Consultar deuda sin cliente (404 esperado)
+run_test "Deuda cliente inexistente" "/api/deudaConsolidada/ObtenerDeudaConsolidadaPorClienteId/99999" 404
+
+# Test 6: Root endpoint
 run_test "Root Endpoint" "/" 200
 
 # Resumen
