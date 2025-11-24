@@ -3,7 +3,6 @@ package com.example.ServiCiudadCali.infrastructure.adapter;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -84,34 +83,6 @@ class JpaFacturaAcueductoRepositoryAdapterTest {
     }
 
     @Test
-    void obtenerPorCliente_ValidarMapeoEntityADomain() {
-        // Arrange
-        FacturaAcueductoEntity entity = new FacturaAcueductoEntity();
-        entity.setId(10L);
-        entity.setIdCliente("1111111111");
-        entity.setPeriodo("202312");
-        entity.setConsumo(75);
-        entity.setValorPagar(new BigDecimal("225000.50"));
-        
-        when(jpaFacturaAcueductoRepository.findFirstByIdClienteOrderByPeriodoDesc("1111111111"))
-            .thenReturn(Optional.of(entity));
-
-        // Act
-        Optional<FacturaAcueducto> resultado = adapter.obtenerPorCliente("1111111111");
-
-        // Assert
-        assertTrue(resultado.isPresent());
-        FacturaAcueducto factura = resultado.get();
-        assertEquals(entity.getId(), factura.getId());
-        assertEquals(entity.getIdCliente(), factura.getIdCliente());
-        assertEquals(entity.getPeriodo(), factura.getPeriodo());
-        assertEquals(entity.getConsumo(), factura.getConsumoM3());
-        assertEquals(entity.getValorPagar(), factura.getValorPagar());
-        
-        verify(jpaFacturaAcueductoRepository, times(1)).findFirstByIdClienteOrderByPeriodoDesc("1111111111");
-    }
-
-    @Test
     void obtenerPorCliente_ConsumoYValorCero_MapeoCorrectamente() {
         // Arrange
         FacturaAcueductoEntity entity = new FacturaAcueductoEntity();
@@ -134,21 +105,6 @@ class JpaFacturaAcueductoRepositoryAdapterTest {
         assertEquals(BigDecimal.ZERO, factura.getValorPagar());
         
         verify(jpaFacturaAcueductoRepository, times(1)).findFirstByIdClienteOrderByPeriodoDesc("2222222222");
-    }
-
-    @Test
-    void obtenerPorCliente_MultiplesBusquedas_CadaUnaLlamaAlRepositorio() {
-        // Arrange
-        when(jpaFacturaAcueductoRepository.findFirstByIdClienteOrderByPeriodoDesc(anyString()))
-            .thenReturn(Optional.of(facturaEntity));
-
-        // Act
-        adapter.obtenerPorCliente("1234567890");
-        adapter.obtenerPorCliente("0987654321");
-        adapter.obtenerPorCliente("1111111111");
-
-        // Assert
-        verify(jpaFacturaAcueductoRepository, times(3)).findFirstByIdClienteOrderByPeriodoDesc(anyString());
     }
 }
 

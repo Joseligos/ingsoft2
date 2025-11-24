@@ -1,7 +1,8 @@
 # Usar una imagen oficial de Maven para compilar
 FROM maven:3.9.6-eclipse-temurin-21 AS build
 WORKDIR /app
-COPY ServiCiudadCali/ .
+COPY pom.xml .
+COPY src ./src
 RUN mvn clean package -DskipTests
 
 # Usar una imagen ligera de Java para ejecutar

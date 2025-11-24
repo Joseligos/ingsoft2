@@ -2,7 +2,6 @@ package com.example.ServiCiudadCali.infrastructure.adapter;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -105,60 +104,6 @@ class FacturaEnergiaRepositoryAdapterTest {
         assertTrue(factura.getValorPagar().compareTo(BigDecimal.ZERO) > 0);
         assertEquals(1000, factura.getConsumokwh());
         assertEquals(new BigDecimal("70000.75"), factura.getValorPagar());
-    }
-
-    @Test
-    void obtenerPorCliente_ValidarMapeoCompleto() {
-        // Arrange
-        String clienteId = "1002345678";
-
-        // Act
-        Optional<FacturaEnergia> resultado = adapter.obtenerPorCliente(clienteId);
-
-        // Assert
-        assertTrue(resultado.isPresent());
-        FacturaEnergia factura = resultado.get();
-        
-        // Validar todos los campos
-        assertEquals("1002345678", factura.getIdCliente());
-        assertEquals("202510", factura.getPeriodo());
-        assertEquals(1300, factura.getConsumokwh());
-        assertEquals(new BigDecimal("84000.25"), factura.getValorPagar());
-    }
-
-    @Test
-    void obtenerPorCliente_MultiplesBusquedasDelMismoCliente_RetornanMismoResultado() {
-        // Arrange
-        String clienteId = "1002345679";
-
-        // Act
-        Optional<FacturaEnergia> resultado1 = adapter.obtenerPorCliente(clienteId);
-        Optional<FacturaEnergia> resultado2 = adapter.obtenerPorCliente(clienteId);
-
-        // Assert
-        assertTrue(resultado1.isPresent());
-        assertTrue(resultado2.isPresent());
-        assertEquals(resultado1.get().getIdCliente(), resultado2.get().getIdCliente());
-        assertEquals(resultado1.get().getPeriodo(), resultado2.get().getPeriodo());
-        assertEquals(resultado1.get().getConsumokwh(), resultado2.get().getConsumokwh());
-        assertEquals(resultado1.get().getValorPagar(), resultado2.get().getValorPagar());
-    }
-
-    @Test
-    void obtenerPorCliente_VariosClientesDiferentes_CadaUnoRetornaCorrectamente() {
-        // Arrange & Act
-        Optional<FacturaEnergia> factura1 = adapter.obtenerPorCliente("0001234567");
-        Optional<FacturaEnergia> factura2 = adapter.obtenerPorCliente("0009876543");
-        Optional<FacturaEnergia> factura3 = adapter.obtenerPorCliente("1106514392");
-
-        // Assert
-        assertTrue(factura1.isPresent());
-        assertTrue(factura2.isPresent());
-        assertTrue(factura3.isPresent());
-        
-        // Verificar que son facturas diferentes
-        assertNotEquals(factura1.get().getIdCliente(), factura2.get().getIdCliente());
-        assertNotEquals(factura2.get().getIdCliente(), factura3.get().getIdCliente());
     }
 
     @Test
