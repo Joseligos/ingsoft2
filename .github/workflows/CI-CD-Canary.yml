@@ -147,7 +147,7 @@ jobs:
           VERSION=${{ needs.build-and-test.outputs.version }}
           
           # Build con Docker Compose
-          VERSION=$VERSION docker-compose build app-stable app-canary
+          VERSION=$VERSION docker compose build app-stable app-canary
           
           # Etiquetar con versión y tags adicionales
           docker tag serviciudadcali:latest serviciudadcali:$VERSION
@@ -198,17 +198,17 @@ jobs:
           VERSION=${{ needs.build-and-test.outputs.version }}
           
           # Detener canary anterior si existe
-          docker-compose --profile canary stop app-canary 2>/dev/null || true
-          docker-compose --profile canary rm -f app-canary 2>/dev/null || true
+          docker compose --profile canary stop app-canary 2>/dev/null || true
+          docker compose --profile canary rm -f app-canary 2>/dev/null || true
           
           # Levantar MySQL si no está corriendo
-          docker-compose up -d mysql
+          docker compose up -d mysql
           
           # Esperar que MySQL esté listo
           sleep 10
           
           # Levantar Canary con Docker Compose
-          VERSION=$VERSION docker-compose --profile canary up -d app-canary
+          VERSION=$VERSION docker compose --profile canary up -d app-canary
           
           echo "✅ Versión Canary desplegada en puerto 8081"
           echo "🔗 URL Canary: http://localhost:8081"
@@ -319,14 +319,14 @@ jobs:
           VERSION=${{ needs.build-and-test.outputs.version }}
           
           # Detener stable actual
-          docker-compose stop app-stable 2>/dev/null || true
-          docker-compose rm -f app-stable 2>/dev/null || true
+          docker compose stop app-stable 2>/dev/null || true
+          docker compose rm -f app-stable 2>/dev/null || true
           
           # Etiquetar imagen canary como latest para stable
           docker tag serviciudadcali:canary serviciudadcali:latest
           
           # Desplegar nueva versión estable con Docker Compose
-          VERSION=$VERSION docker-compose up -d app-stable
+          VERSION=$VERSION docker compose up -d app-stable
           
           echo "✅ Nueva versión promovida a producción en puerto 8080"
           echo "🔗 URL Producción: http://localhost:8080"
@@ -360,8 +360,8 @@ jobs:
         if: success()
         run: |
           cd ServiCiudadCali
-          docker-compose --profile canary stop app-canary 2>/dev/null || true
-          docker-compose --profile canary rm -f app-canary 2>/dev/null || true
+          docker compose --profile canary stop app-canary 2>/dev/null || true
+          docker compose --profile canary rm -f app-canary 2>/dev/null || true
           echo "✅ Versión Canary removida"
 
       - name: 🎉 Despliegue completado
@@ -388,14 +388,14 @@ jobs:
           echo "🔄 Iniciando rollback a versión anterior..."
           
           # Detener versión fallida
-          docker-compose stop app-stable 2>/dev/null || true
-          docker-compose rm -f app-stable 2>/dev/null || true
+          docker compose stop app-stable 2>/dev/null || true
+          docker compose rm -f app-stable 2>/dev/null || true
           
           # Restaurar imagen de rollback
           docker tag serviciudadcali:rollback serviciudadcali:latest
           
           # Desplegar versión anterior con Docker Compose
-          docker-compose up -d app-stable
+          docker compose up -d app-stable
           
           echo "✅ Rollback completado - Versión anterior restaurada"
 
