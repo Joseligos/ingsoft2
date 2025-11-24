@@ -306,12 +306,14 @@ jobs:
       - name: 📦 Cargar imagen Docker
         run: |
           docker load < serviciudadcali-stable.tar.gz
+          # La imagen cargada ya es serviciudadcali:latest (la nueva versión)
+          echo "✅ Imagen Docker cargada como serviciudadcali:latest"
 
       - name: 🔄 Backup versión actual (Stable)
         run: |
-          # Backup de la versión actual como rollback
-          docker tag serviciudadcali:latest serviciudadcali:rollback || true
-          echo "✅ Backup de versión estable creado"
+          # Intentar hacer backup de la versión actual si existe
+          docker tag serviciudadcali:latest serviciudadcali:rollback 2>/dev/null || echo "⚠️  No hay versión anterior para backup"
+          echo "✅ Backup preparado"
 
       - name: 🚀 Promover Canary a Producción con Docker Compose
         run: |
@@ -322,8 +324,8 @@ jobs:
           docker compose stop app-stable 2>/dev/null || true
           docker compose rm -f app-stable 2>/dev/null || true
           
-          # Etiquetar imagen canary como latest para stable
-          docker tag serviciudadcali:canary serviciudadcali:latest
+          # La imagen serviciudadcali:latest ya es la nueva versión
+          # No necesitamos etiquetar desde canary porque ya la tenemos
           
           # Desplegar nueva versión estable con Docker Compose
           VERSION=$VERSION docker compose up -d app-stable
