@@ -21,6 +21,50 @@ echo -e "${CYAN}========================================${NC}"
 echo -e "${CYAN}Versión: ${VERSION}${NC}"
 echo ""
 
+# Verificar si stable está corriendo
+if ! docker ps | grep -q "serviciudadcali-stable"; then
+  echo -e "${YELLOW}⚠️  ADVERTENCIA: No hay versión stable corriendo${NC}"
+  echo -e "${YELLOW}   El despliegue Canary requiere una versión stable activa${NC}"
+  echo ""
+  echo -e "${CYAN}¿Desea desplegar primero la versión stable? [y/N]:${NC} "
+  read -r deploy_stable
+  
+  if [ "$deploy_stable" = "y" ] || [ "$deploy_stable" = "Y" ]; then
+    echo ""
+    echo -e "${CYAN}🚀 Desplegando versión stable primero...${NC}"
+    
+    # Si no existe imagen stable, usar la última construida o construir ahora
+    if ! docker images | grep -q "serviciudadcali.*stable"; then
+      echo -e "${YELLOW}   No hay imagen stable, usando latest como base${NC}"
+      
+      # Si tampoco hay latest, construir ahora
+      if ! docker images | grep -q "serviciudadcali.*latest"; then
+        echo -e "${CYAN}   Construyendo imagen base...${NC}"
+        mvn clean package -DskipTests
+        VERSION=${VERSION} docker compose -f docker-compose.build.yml build
+      fi
+      
+      docker tag serviciudadcali:latest serviciudadcali:stable
+    fi
+    
+    # Desplegar stable
+    VERSION=${VERSION}-stable docker compose up -d app-stable
+    
+    echo -e "${GREEN}✅ Versión stable desplegada en puerto 8080${NC}"
+    echo -e "${CYAN}⏳ Esperando inicialización de stable (30 segundos)...${NC}"
+    sleep 30
+    echo ""
+  else
+    echo -e "${RED}❌ Despliegue cancelado${NC}"
+    echo -e "${YELLOW}💡 Para un verdadero despliegue Canary, primero despliegue stable:${NC}"
+    echo -e "${YELLOW}   docker compose up -d app-stable${NC}"
+    exit 1
+  fi
+fi
+
+echo -e "${GREEN}✅ Versión stable activa en puerto 8080${NC}"
+echo ""
+
 # Paso 1: Build del proyecto Maven
 echo -e "${CYAN}🏗️  Paso 1/5: Compilando proyecto Maven...${NC}"
 cd "$(dirname "$0")/.."
