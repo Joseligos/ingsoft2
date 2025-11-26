@@ -30,20 +30,21 @@ echo ""
 
 # Paso 2: Build de la imagen con Docker Compose
 echo -e "${CYAN}🐳 Paso 2/5: Construyendo imagen Docker...${NC}"
-VERSION=${VERSION} docker-compose build app-canary
-echo -e "${GREEN}✅ Imagen construida${NC}"
+VERSION=${VERSION} docker compose -f docker-compose.build.yml build
+docker tag serviciudadcali:latest serviciudadcali:canary
+echo -e "${GREEN}✅ Imagen construida y etiquetada como canary${NC}"
 echo ""
 
 # Paso 3: Detener Canary anterior
 echo -e "${CYAN}🛑 Paso 3/5: Deteniendo Canary anterior (si existe)...${NC}"
-docker-compose --profile canary stop app-canary 2>/dev/null || true
-docker-compose --profile canary rm -f app-canary 2>/dev/null || true
+docker compose --profile canary stop app-canary 2>/dev/null || true
+docker compose --profile canary rm -f app-canary 2>/dev/null || true
 echo -e "${GREEN}✅ Canary anterior removido${NC}"
 echo ""
 
 # Paso 4: Desplegar nueva versión Canary
 echo -e "${CYAN}🚀 Paso 4/5: Desplegando nueva versión Canary...${NC}"
-VERSION=${VERSION} docker-compose --profile canary up -d app-canary
+VERSION=${VERSION} docker compose --profile canary up -d app-canary
 echo -e "${GREEN}✅ Canary desplegado en puerto ${CANARY_PORT}${NC}"
 echo ""
 
@@ -69,7 +70,7 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
     echo -e "  🐳 Servicio: app-canary"
     echo ""
     echo -e "${YELLOW}📋 Próximos pasos:${NC}"
-    echo -e "  1. Monitorear logs: docker-compose --profile canary logs -f app-canary"
+    echo -e "  1. Monitorear logs: docker compose --profile canary logs -f app-canary"
     echo -e "  2. Ejecutar smoke tests: ./scripts/smoke-test-canary.sh"
     echo -e "  3. Verificar estado: ./scripts/status.sh"
     echo -e "  4. Promover a producción: ./scripts/promote-canary.sh"
@@ -84,9 +85,9 @@ done
 
 echo -e "${RED}❌ ERROR: Canary no responde al health check después de ${MAX_RETRIES} intentos${NC}"
 echo -e "${YELLOW}📝 Mostrando últimos logs:${NC}"
-docker-compose --profile canary logs --tail 50 app-canary
+docker compose --profile canary logs --tail 50 app-canary
 echo ""
 echo -e "${RED}🛑 Deteniendo Canary fallido...${NC}"
-docker-compose --profile canary stop app-canary
-docker-compose --profile canary rm -f app-canary
+docker compose --profile canary stop app-canary
+docker compose --profile canary rm -f app-canary
 exit 1

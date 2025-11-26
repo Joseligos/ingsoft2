@@ -28,7 +28,7 @@ if ! docker images | grep -q "serviciudadcali.*rollback"; then
 fi
 
 # Obtener versión actual (si existe)
-if docker-compose ps app-stable | grep -q "Up"; then
+if docker compose ps app-stable | grep -q "Up"; then
   CURRENT_VERSION=$(docker inspect --format='{{range .Config.Env}}{{println .}}{{end}}' serviciudadcali-stable | grep VERSION | cut -d'=' -f2 || echo "unknown")
   echo -e "${CYAN}📦 Versión actual: ${CURRENT_VERSION}${NC}"
 else
@@ -51,15 +51,15 @@ echo ""
 
 # Paso 1: Detener versión actual
 echo -e "${CYAN}🛑 Paso 1/4: Deteniendo versión actual...${NC}"
-docker-compose stop app-stable 2>/dev/null || true
-docker-compose rm -f app-stable 2>/dev/null || true
+docker compose stop app-stable 2>/dev/null || true
+docker compose rm -f app-stable 2>/dev/null || true
 echo -e "${GREEN}✅ Versión actual detenida${NC}"
 echo ""
 
-# Paso 2: Restaurar imagen de rollback como latest
+# Paso 2: Restaurar imagen de rollback como stable
 echo -e "${CYAN}🔄 Paso 2/4: Restaurando versión anterior...${NC}"
-docker tag serviciudadcali:rollback serviciudadcali:latest
-docker-compose up -d app-stable
+docker tag serviciudadcali:rollback serviciudadcali:stable
+docker compose up -d app-stable
 
 echo -e "${GREEN}✅ Versión anterior desplegada${NC}"
 echo ""
@@ -104,28 +104,8 @@ echo -e "  📦 Versión: rollback"
 echo -e "  🐳 Servicio: app-stable"
 echo ""
 echo -e "${CYAN}📋 Comandos útiles:${NC}"
-echo -e "  📝 Ver logs: docker-compose logs -f app-stable"
-echo -e "  📊 Ver estado: docker-compose ps"
-echo -e "  💊 Health: curl http://localhost:${STABLE_PORT}/actuator/health"
-echo ""
-echo -e "${YELLOW}⚠️  Nota: Se ha restaurado la versión anterior${NC}"
-echo -e "${YELLOW}   Investigue la causa del problema antes de volver a desplegar${NC}"
-echo ""
-done
-
-echo ""
-
-# Éxito
-echo -e "${GREEN}🎉 ¡Rollback completado exitosamente!${NC}"
-echo ""
-echo -e "${CYAN}📋 Información del despliegue:${NC}"
-echo -e "  🔗 URL: http://localhost:${STABLE_PORT}"
-echo -e "  📦 Versión: rollback"
-echo -e "  🐳 Contenedor: ${CONTAINER_STABLE}"
-echo ""
-echo -e "${CYAN}📋 Comandos útiles:${NC}"
-echo -e "  📝 Ver logs: docker logs -f ${CONTAINER_STABLE}"
-echo -e "  📊 Ver estado: docker ps -f name=${CONTAINER_STABLE}"
+echo -e "  📝 Ver logs: docker compose logs -f app-stable"
+echo -e "  📊 Ver estado: docker compose ps"
 echo -e "  💊 Health: curl http://localhost:${STABLE_PORT}/actuator/health"
 echo ""
 echo -e "${YELLOW}⚠️  Nota: Se ha restaurado la versión anterior${NC}"

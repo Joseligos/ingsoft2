@@ -21,7 +21,7 @@ echo -e "${CYAN}========================================${NC}"
 echo ""
 
 # Verificar que Canary esté corriendo
-if ! docker-compose --profile canary ps app-canary | grep -q "Up"; then
+if ! docker compose --profile canary ps app-canary | grep -q "Up"; then
   echo -e "${RED}❌ ERROR: No hay ninguna versión Canary activa${NC}"
   echo -e "${YELLOW}💡 Primero despliegue Canary con: ./scripts/deploy-canary.sh${NC}"
   exit 1
@@ -48,9 +48,14 @@ echo ""
 
 # Paso 1: Crear backup etiquetando imagen actual
 echo -e "${CYAN}📦 Paso 1/5: Creando backup de versión actual...${NC}"
-if docker-compose ps app-stable | grep -q "Up"; then
-  docker tag serviciudadcali:latest serviciudadcali:rollback
-  echo -e "${GREEN}✅ Backup creado como serviciudadcali:rollback${NC}"
+if docker compose ps app-stable | grep -q "Up"; then
+  CURRENT_IMAGE=$(docker inspect serviciudadcali-stable --format='{{.Image}}' 2>/dev/null || echo "")
+  if [ -n "$CURRENT_IMAGE" ]; then
+    docker tag $CURRENT_IMAGE serviciudadcali:rollback
+    echo -e "${GREEN}✅ Backup creado como serviciudadcali:rollback${NC}"
+  else
+    echo -e "${YELLOW}⚠️  No se pudo hacer backup${NC}"
+  fi
 else
   echo -e "${YELLOW}⚠️  No hay versión en producción para hacer backup${NC}"
 fi
@@ -58,21 +63,20 @@ echo ""
 
 # Paso 2: Detener producción actual
 echo -e "${CYAN}🛑 Paso 2/5: Deteniendo versión actual en producción...${NC}"
-docker-compose stop app-stable 2>/dev/null || true
-docker-compose rm -f app-stable 2>/dev/null || true
+docker compose stop app-stable 2>/dev/null || true
+docker compose rm -f app-stable 2>/dev/null || true
 echo -e "${GREEN}✅ Versión anterior detenida${NC}"
 echo ""
 
-# Paso 3: Obtener imagen de Canary y etiquetar como latest
+# Paso 3: Etiquetar imagen canary como stable
 echo -e "${CYAN}🐳 Paso 3/5: Promoviendo imagen Canary...${NC}"
-CANARY_IMAGE=$(docker inspect --format='{{.Config.Image}}' serviciudadcali-canary)
-docker tag ${CANARY_IMAGE} serviciudadcali:latest
-echo -e "${GREEN}✅ Imagen promovida: ${CANARY_IMAGE}${NC}"
+docker tag serviciudadcali:canary serviciudadcali:stable
+echo -e "${GREEN}✅ Imagen promovida: serviciudadcali:canary → serviciudadcali:stable${NC}"
 echo ""
 
 # Paso 4: Desplegar en producción
 echo -e "${CYAN}🚀 Paso 4/5: Desplegando en producción...${NC}"
-VERSION=${CANARY_VERSION} docker-compose up -d app-stable
+VERSION=${CANARY_VERSION} docker compose up -d app-stable
 
 echo -e "${GREEN}✅ Nueva versión desplegada en producción${NC}"
 echo ""
@@ -97,10 +101,10 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
     echo -e "${YELLOW}🔄 Iniciando rollback automático...${NC}"
     
     # Rollback automático
-    docker-compose stop app-stable
-    docker-compose rm -f app-stable
-    docker tag serviciudadcali:rollback serviciudadcali:latest
-    docker-compose up -d app-stable
+    docker compose stop app-stable
+    docker compose rm -f app-stable
+    docker tag serviciudadcali:rollback serviciudadcali:stable
+    docker compose up -d app-stable
     
     echo -e "${GREEN}✅ Rollback completado - Versión anterior restaurada${NC}"
     exit 1
@@ -114,8 +118,8 @@ echo ""
 
 # Limpiar Canary
 echo -e "${CYAN}🧹 Limpiando versión Canary...${NC}"
-docker-compose --profile canary stop app-canary 2>/dev/null || true
-docker-compose --profile canary rm -f app-canary 2>/dev/null || true
+docker compose --profile canary stop app-canary 2>/dev/null || true
+docker compose --profile canary rm -f app-canary 2>/dev/null || true
 echo -e "${GREEN}✅ Canary removido${NC}"
 echo ""
 
@@ -128,7 +132,7 @@ echo -e "  📦 Versión: ${CANARY_VERSION}"
 echo -e "  🐳 Servicio: app-stable"
 echo ""
 echo -e "${CYAN}📋 Comandos útiles:${NC}"
-echo -e "  📝 Ver logs: docker-compose logs -f app-stable"
-echo -e "  📊 Ver estado: docker-compose ps"
+echo -e "  📝 Ver logs: docker compose logs -f app-stable"
+echo -e "  📊 Ver estado: docker compose ps"
 echo -e "  🔄 Rollback: ./scripts/rollback.sh"
 echo ""

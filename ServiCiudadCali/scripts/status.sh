@@ -27,17 +27,17 @@ get_service_status() {
   local profile=$2
   
   if [ -n "$profile" ]; then
-    if docker-compose --profile $profile ps $service 2>/dev/null | grep -q "Up"; then
+    if docker compose --profile $profile ps $service 2>/dev/null | grep -q "Up"; then
       echo -e "${GREEN}🟢 RUNNING${NC}"
-    elif docker-compose --profile $profile ps -a $service 2>/dev/null | grep -q "$service"; then
+    elif docker compose --profile $profile ps -a $service 2>/dev/null | grep -q "$service"; then
       echo -e "${RED}🔴 STOPPED${NC}"
     else
       echo -e "${YELLOW}⚪ NOT DEPLOYED${NC}"
     fi
   else
-    if docker-compose ps $service 2>/dev/null | grep -q "Up"; then
+    if docker compose ps $service 2>/dev/null | grep -q "Up"; then
       echo -e "${GREEN}🟢 RUNNING${NC}"
-    elif docker-compose ps -a $service 2>/dev/null | grep -q "$service"; then
+    elif docker compose ps -a $service 2>/dev/null | grep -q "$service"; then
       echo -e "${RED}🔴 STOPPED${NC}"
     else
       echo -e "${YELLOW}⚪ NOT DEPLOYED${NC}"
@@ -123,7 +123,7 @@ echo ""
 # SERVICIOS DOCKER COMPOSE
 echo -e "${CYAN}🐳 SERVICIOS DOCKER COMPOSE${NC}"
 echo "───────────────────────────────────────"
-docker-compose ps
+docker compose ps
 echo ""
 
 # IMÁGENES DOCKER
@@ -158,14 +158,14 @@ echo "────────────────────────�
 if docker ps | grep -q "serviciudadcali-canary"; then
   echo -e "  📊 Smoke tests:   ${GREEN}./scripts/smoke-test-canary.sh${NC}"
   echo -e "  ⬆️  Promoción:     ${GREEN}./scripts/promote-canary.sh${NC}"
-  echo -e "  📝 Logs:          ${GREEN}docker-compose --profile canary logs -f app-canary${NC}"
+  echo -e "  📝 Logs:          ${GREEN}docker compose --profile canary logs -f app-canary${NC}"
 else
   echo -e "  🚀 Deploy Canary: ${GREEN}./scripts/deploy-canary.sh${NC}"
 fi
 
 if docker ps | grep -q "serviciudadcali-stable"; then
   echo -e "  🔄 Rollback:      ${YELLOW}./scripts/rollback.sh${NC}"
-  echo -e "  📝 Logs:          ${GREEN}docker-compose logs -f app-stable${NC}"
+  echo -e "  📝 Logs:          ${GREEN}docker compose logs -f app-stable${NC}"
 fi
 
 echo ""
