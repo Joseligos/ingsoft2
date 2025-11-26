@@ -23,46 +23,77 @@ echo ""
 
 # Verificar si stable está corriendo
 if ! docker ps | grep -q "serviciudadcali-stable"; then
-  echo -e "${YELLOW}⚠️  ADVERTENCIA: No hay versión stable corriendo${NC}"
-  echo -e "${YELLOW}   El despliegue Canary requiere una versión stable activa${NC}"
+  echo -e "${YELLOW}========================================${NC}"
+  echo -e "${YELLOW}⚠️  PRIMER DESPLIEGUE - No hay versión stable${NC}"
+  echo -e "${YELLOW}========================================${NC}"
   echo ""
-  echo -e "${CYAN}¿Desea desplegar primero la versión stable? [y/N]:${NC} "
+  echo -e "${YELLOW}Este parece ser el primer despliegue. En un despliegue Canary:${NC}"
+  echo -e "${YELLOW}- STABLE (puerto 8080): Versión actual en producción (vieja)${NC}"
+  echo -e "${YELLOW}- CANARY (puerto 8081): Versión nueva en prueba${NC}"
+  echo ""
+  echo -e "${CYAN}¿Desea desplegar esta versión como STABLE inicial? [y/N]:${NC} "
   read -r deploy_stable
   
   if [ "$deploy_stable" = "y" ] || [ "$deploy_stable" = "Y" ]; then
     echo ""
-    echo -e "${CYAN}🚀 Desplegando versión stable primero...${NC}"
+    echo -e "${CYAN}🚀 Desplegando como versión STABLE inicial...${NC}"
     
-    # Si no existe imagen stable, usar la última construida o construir ahora
-    if ! docker images | grep -q "serviciudadcali.*stable"; then
-      echo -e "${YELLOW}   No hay imagen stable, usando latest como base${NC}"
-      
-      # Si tampoco hay latest, construir ahora
-      if ! docker images | grep -q "serviciudadcali.*latest"; then
-        echo -e "${CYAN}   Construyendo imagen base...${NC}"
-        mvn clean package -DskipTests
-        VERSION=${VERSION} docker compose -f docker-compose.build.yml build
-      fi
-      
-      docker tag serviciudadcali:latest serviciudadcali:stable
+    # Compilar y construir imagen
+    mvn clean package -DskipTests
+    VERSION=${VERSION} docker compose -f docker-compose.build.yml build
+    
+    # En el primer despliegue, la nueva imagen se convierte en stable
+    docker tag serviciudadcali:latest serviciudadcali:stable
+    
+    # Desplegar MySQL
+    docker compose up -d mysql
+    sleep 10
+    
+    # Desplegar como stable
+    VERSION=${VERSION} docker compose up -d app-stable
+    
+    echo -e "${GREEN}✅ Primera versión desplegada como STABLE en puerto 8080${NC}"
+    echo ""
+    echo -e "${CYAN}ℹ️  Nota: Este es el primer despliegue${NC}"
+    echo -e "${CYAN}ℹ️  En el próximo despliegue:${NC}"
+    echo -e "${CYAN}   - Esta versión será STABLE (vieja) en puerto 8080${NC}"
+    echo -e "${CYAN}   - La nueva versión será CANARY (nueva) en puerto 8081${NC}"
+    echo ""
+    
+    # Health check
+    sleep 30
+    if curl -sf http://localhost:8080/actuator/health > /dev/null 2>&1; then
+      echo -e "${GREEN}✅ Versión STABLE está saludable!${NC}"
+      echo -e "${GREEN}🔗 URL: http://localhost:8080${NC}"
+    else
+      echo -e "${RED}❌ Error: La versión no responde${NC}"
+      exit 1
     fi
     
-    # Desplegar stable
-    VERSION=${VERSION}-stable docker compose up -d app-stable
-    
-    echo -e "${GREEN}✅ Versión stable desplegada en puerto 8080${NC}"
-    echo -e "${CYAN}⏳ Esperando inicialización de stable (30 segundos)...${NC}"
-    sleep 30
-    echo ""
+    exit 0
   else
     echo -e "${RED}❌ Despliegue cancelado${NC}"
-    echo -e "${YELLOW}💡 Para un verdadero despliegue Canary, primero despliegue stable:${NC}"
-    echo -e "${YELLOW}   docker compose up -d app-stable${NC}"
+    echo -e "${YELLOW}💡 Para configurar manualmente:${NC}"
+    echo -e "${YELLOW}   1. Construir imagen: docker compose -f docker-compose.build.yml build${NC}"
+    echo -e "${YELLOW}   2. Etiquetar como stable: docker tag serviciudadcali:latest serviciudadcali:stable${NC}"
+    echo -e "${YELLOW}   3. Desplegar: docker compose up -d app-stable${NC}"
     exit 1
   fi
 fi
 
-echo -e "${GREEN}✅ Versión stable activa en puerto 8080${NC}"
+echo -e "${GREEN}========================================${NC}"
+echo -e "${GREEN}✅ DESPLIEGUE CANARY - Stable ya existe${NC}"
+echo -e "${GREEN}========================================${NC}"
+
+# Obtener versión de stable actual (la vieja)
+STABLE_VERSION=$(docker inspect serviciudadcali-stable --format='{{range .Config.Env}}{{println .}}{{end}}' | grep VERSION | cut -d'=' -f2 || echo "unknown")
+echo -e "${CYAN}📦 Versión STABLE actual (vieja): ${STABLE_VERSION}${NC}"
+echo -e "${CYAN}📦 Versión CANARY nueva: ${VERSION}${NC}"
+echo ""
+
+echo -e "${YELLOW}Se desplegará la NUEVA versión como Canary en paralelo:${NC}"
+echo -e "${YELLOW}  Puerto 8080: STABLE v${STABLE_VERSION} (versión VIEJA)${NC}"
+echo -e "${YELLOW}  Puerto 8081: CANARY v${VERSION} (versión NUEVA)${NC}"
 echo ""
 
 # Paso 1: Build del proyecto Maven

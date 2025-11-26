@@ -141,7 +141,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
         continue-on-error: true
 
-      - name: 🏗️ Build imagen Docker con Docker Compose
+      - name: 🏗️ Build imagen Docker NUEVA (Canary)
         run: |
           cd ServiCiudadCali
           VERSION=${{ needs.build-and-test.outputs.version }}
@@ -149,21 +149,22 @@ jobs:
           # Build con Docker Compose (archivo específico para build)
           VERSION=$VERSION docker compose -f docker-compose.build.yml build
           
-          # Etiquetar con versión y tags adicionales
+          # Esta es la NUEVA versión - etiquetar como canary
+          docker tag serviciudadcali:latest serviciudadcali:canary
           docker tag serviciudadcali:latest serviciudadcali:$VERSION
           
-          echo "✅ Imagen Docker creada: serviciudadcali:latest y serviciudadcali:$VERSION"
+          echo "✅ Imagen NUEVA creada: serviciudadcali:canary (versión $VERSION)"
 
-      - name: 💾 Guardar imagen Docker
+      - name: 💾 Guardar imagen Canary (nueva)
         run: |
-          docker save serviciudadcali:latest | gzip > serviciudadcali-stable.tar.gz
-          echo "✅ Imagen Docker guardada"
+          docker save serviciudadcali:canary | gzip > serviciudadcali-canary.tar.gz
+          echo "✅ Imagen Canary guardada"
 
-      - name: 📤 Subir imagen Docker como artefacto
+      - name: 📤 Subir imagen Canary como artefacto
         uses: actions/upload-artifact@v4
         with:
-          name: docker-image-stable
-          path: serviciudadcali-stable.tar.gz
+          name: docker-image-canary
+          path: serviciudadcali-canary.tar.gz
           retention-days: 7
 
   # ==============================================================
@@ -179,19 +180,18 @@ jobs:
       - name: 📥 Checkout código
         uses: actions/checkout@v4
 
-      - name: 📥 Descargar imagen Docker
+      - name: 📥 Descargar imagen Canary (nueva)
         uses: actions/download-artifact@v4
         with:
-          name: docker-image-stable
+          name: docker-image-canary
           path: .
 
-      - name: 📦 Cargar imagen Docker
+      - name: 📦 Cargar imagen Canary
         run: |
-          docker load < serviciudadcali-stable.tar.gz
-          docker tag serviciudadcali:latest serviciudadcali:canary
-          echo "✅ Imagen Docker cargada"
+          docker load < serviciudadcali-canary.tar.gz
+          echo "✅ Imagen Canary (NUEVA versión) cargada"
 
-      - name: 🐳 Levantar versión Canary con Docker Compose
+      - name: 🐳 Configurar y levantar servicios con Docker Compose
         run: |
           cd ServiCiudadCali
           VERSION=${{ needs.build-and-test.outputs.version }}
@@ -206,29 +206,42 @@ jobs:
           # Esperar que MySQL esté listo
           sleep 10
           
-          # Verificar si hay versión stable corriendo, si no, desplegarla
+          # CRITICAL: Verificar si hay versión stable corriendo
           if ! docker ps | grep -q "serviciudadcali-stable"; then
-            echo "⚠️  No hay versión stable, desplegando primero..."
+            echo "=========================================="
+            echo "⚠️  PRIMER DESPLIEGUE - No hay versión stable"
+            echo "=========================================="
             
-            # Si no existe imagen stable, usar latest como base
-            if ! docker images | grep -q "serviciudadcali.*stable"; then
-              docker tag serviciudadcali:latest serviciudadcali:stable
-            fi
+            # En el PRIMER despliegue, la imagen canary se convierte en stable
+            docker tag serviciudadcali:canary serviciudadcali:stable
             
-            # Desplegar stable (versión anterior/base)
-            VERSION=${VERSION}-stable docker compose up -d app-stable
-            echo "✅ Versión stable desplegada en puerto 8080"
+            # Desplegar como stable (será la versión base para futuros canary)
+            VERSION=${VERSION} docker compose up -d app-stable
+            echo "✅ Primera versión desplegada como STABLE en puerto 8080"
             sleep 20
+            
+            echo ""
+            echo "ℹ️  Nota: Este es el primer despliegue, no hay Canary aún"
+            echo "ℹ️  En el próximo push, esta versión será 'stable' (vieja)"
+            echo "ℹ️  y la nueva será 'canary' para comparación"
           else
-            echo "✅ Versión stable ya está activa en puerto 8080"
+            echo "=========================================="
+            echo "✅ DESPLIEGUE CANARY - Stable ya existe"
+            echo "=========================================="
+            
+            # Obtener info de la versión stable actual (la vieja)
+            STABLE_VERSION=$(docker inspect serviciudadcali-stable --format='{{range .Config.Env}}{{println .}}{{end}}' | grep VERSION | cut -d'=' -f2 || echo "unknown")
+            echo "📦 Versión STABLE actual (vieja): $STABLE_VERSION"
+            echo "📦 Versión CANARY nueva: $VERSION"
+            echo ""
+            
+            # Levantar Canary (NUEVA versión) en paralelo con Stable (vieja)
+            VERSION=$VERSION docker compose --profile canary up -d app-canary
+            
+            echo "✅ Versión Canary (NUEVA) desplegada en puerto 8081"
+            echo "🔗 Puerto 8080: STABLE v${STABLE_VERSION} (versión VIEJA en producción)"
+            echo "🔗 Puerto 8081: CANARY v${VERSION} (versión NUEVA en prueba)"
           fi
-          
-          # Levantar Canary con Docker Compose (nueva versión)
-          VERSION=$VERSION docker compose --profile canary up -d app-canary
-          
-          echo "✅ Versión Canary desplegada en puerto 8081"
-          echo "🔗 URL Stable (vieja): http://localhost:8080"
-          echo "🔗 URL Canary (nueva): http://localhost:8081"
 
       - name: ⏳ Esperar inicialización (30 segundos)
         run: |
@@ -314,27 +327,27 @@ jobs:
       - name: 📥 Checkout código
         uses: actions/checkout@v4
 
-      - name: 📥 Descargar imagen Docker
+      - name: 📥 Descargar imagen Canary (nueva)
         uses: actions/download-artifact@v4
         with:
-          name: docker-image-stable
+          name: docker-image-canary
           path: .
 
-      - name: 📦 Cargar imagen Docker
+      - name: 📦 Cargar imagen Canary
         run: |
-          docker load < serviciudadcali-stable.tar.gz
-          # La imagen cargada ya es serviciudadcali:latest (la nueva versión)
-          echo "✅ Imagen Docker cargada como serviciudadcali:latest"
+          docker load < serviciudadcali-canary.tar.gz
+          echo "✅ Imagen Canary (nueva versión) cargada"
 
-      - name: 🔄 Backup versión actual (Stable)
+      - name: 🔄 Backup versión Stable actual (la vieja)
         run: |
           cd ServiCiudadCali
           # Si hay un stable corriendo, hacer backup de su imagen
-          if docker compose ps app-stable --format json 2>/dev/null | grep -q "app-stable"; then
+          if docker ps | grep -q "serviciudadcali-stable"; then
             CURRENT_IMAGE=$(docker inspect serviciudadcali-stable --format='{{.Image}}' 2>/dev/null || echo "")
             if [ -n "$CURRENT_IMAGE" ]; then
               docker tag $CURRENT_IMAGE serviciudadcali:rollback
-              echo "✅ Backup de versión actual guardado como serviciudadcali:rollback"
+              STABLE_VERSION=$(docker inspect serviciudadcali-stable --format='{{range .Config.Env}}{{println .}}{{end}}' | grep VERSION | cut -d'=' -f2 || echo "unknown")
+              echo "✅ Backup de versión stable (v${STABLE_VERSION}) guardado como serviciudadcali:rollback"
             else
               echo "⚠️  No se pudo hacer backup - no hay imagen actual"
             fi
@@ -342,7 +355,7 @@ jobs:
             echo "ℹ️  No hay versión stable previa (primer despliegue)"
           fi
 
-      - name: 🚀 Promover Canary a Producción con Docker Compose
+      - name: 🚀 Promover Canary a Producción
         run: |
           cd ServiCiudadCali
           VERSION=${{ needs.build-and-test.outputs.version }}
@@ -351,13 +364,15 @@ jobs:
           docker compose stop app-stable 2>/dev/null || true
           docker compose rm -f app-stable 2>/dev/null || true
           
-          # Etiquetar la nueva imagen para stable
-          docker tag serviciudadcali:latest serviciudadcali:stable
+          # Promover: la imagen canary (nueva) se convierte en stable
+          docker tag serviciudadcali:canary serviciudadcali:stable
           
-          # Desplegar NUEVA versión como stable con Docker Compose
+          echo "🔄 Promoción: Canary (v${VERSION}) → Stable"
+          
+          # Desplegar NUEVA versión como stable en producción
           VERSION=$VERSION docker compose up -d app-stable
           
-          echo "✅ Nueva versión promovida a producción en puerto 8080"
+          echo "✅ Nueva versión promovida a STABLE en puerto 8080"
           echo "🔗 URL Producción: http://localhost:8080"
 
       - name: ⏳ Esperar inicialización
@@ -420,13 +435,13 @@ jobs:
           docker compose stop app-stable 2>/dev/null || true
           docker compose rm -f app-stable 2>/dev/null || true
           
-          # Restaurar imagen de rollback
-          docker tag serviciudadcali:rollback serviciudadcali:latest
+          # Restaurar imagen de rollback como stable
+          docker tag serviciudadcali:rollback serviciudadcali:stable
           
           # Desplegar versión anterior con Docker Compose
           docker compose up -d app-stable
           
-          echo "✅ Rollback completado - Versión anterior restaurada"
+          echo "✅ Rollback completado - Versión anterior restaurada como STABLE"
 
       - name: 📧 Notificar fallo
         run: |

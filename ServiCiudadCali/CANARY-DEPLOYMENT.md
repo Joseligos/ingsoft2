@@ -31,41 +31,46 @@ El despliegue Canary permite probar una **nueva versión** del servicio en produ
 
 ## 🔄 Flujo Paso a Paso
 
-### Estado Inicial
+### Primer Despliegue (Inicialización)
 ```bash
-Puerto 8080: serviciudadcali:stable (v1.0.100) ← Versión actual en producción
-Puerto 8081: (vacío)
+Push #1 → Pipeline construye v1.0.101
+           ↓
+        NO hay stable → Imagen se despliega como STABLE
+           ↓
+        Puerto 8080: serviciudadcali:stable (v1.0.101)
+        Puerto 8081: (vacío - no hay Canary aún)
 ```
 
-### Después de Push a Main
-1. **Pipeline construye nueva imagen**
-   ```bash
-   serviciudadcali:latest (v1.0.101) ← NUEVA versión
-   ```
+### Segundo Despliegue (Verdadero Canary)
+```bash
+Push #2 → Pipeline construye v1.0.102 (NUEVA)
+           ↓
+        YA hay stable (v1.0.101) corriendo
+           ↓
+        Puerto 8080: serviciudadcali:stable (v1.0.101) ← VIEJA (sigue corriendo)
+        Puerto 8081: serviciudadcali:canary (v1.0.102) ← NUEVA (en prueba)
+```
 
-2. **Canary Deploy (Job 3)**
-   ```bash
-   Puerto 8080: serviciudadcali:stable (v1.0.100) ← Sigue en producción
-   Puerto 8081: serviciudadcali:canary (v1.0.101) ← NUEVA versión en prueba
-   ```
-   - Smoke tests se ejecutan contra puerto 8081
-   - Tráfico de prueba dirigido a 8081
-   - Versión anterior sigue estable en 8080
+### Después de Promoción
+```bash
+Smoke tests OK → Promoción
+           ↓
+        Backup: stable v1.0.101 → rollback
+        Promoción: canary v1.0.102 → stable
+           ↓
+        Puerto 8080: serviciudadcali:stable (v1.0.102) ← Nueva versión promovida
+        Puerto 8081: (apagado - Canary limpiado)
+```
 
-3. **Promoción (Job 4 - si Canary OK)**
-   ```bash
-   # Backup de versión actual
-   serviciudadcali:rollback (v1.0.100) ← Guardada por si hay problemas
-   
-   # Promoción
-   Puerto 8080: serviciudadcali:stable (v1.0.101) ← NUEVA versión promovida
-   Puerto 8081: (apagado) ← Canary limpiado
-   ```
-
-4. **Rollback (Job 5 - si falla promoción)**
-   ```bash
-   Puerto 8080: serviciudadcali:rollback (v1.0.100) ← Versión anterior restaurada
-   ```
+### Tercer Despliegue (Siguiente Canary)
+```bash
+Push #3 → Pipeline construye v1.0.103 (NUEVA)
+           ↓
+        YA hay stable (v1.0.102) corriendo
+           ↓
+        Puerto 8080: serviciudadcali:stable (v1.0.102) ← VIEJA (del push anterior)
+        Puerto 8081: serviciudadcali:canary (v1.0.103) ← NUEVA (en prueba)
+```
 
 ## 📁 Archivos Docker Compose
 
@@ -128,16 +133,22 @@ app-canary:
 ## 🚀 Comandos Clave del Pipeline
 
 ```bash
-# 1. Build (Job 2)
+# 1. Build (Job 2) - Construye NUEVA versión
 docker compose -f docker-compose.build.yml build
-docker tag serviciudadcali:latest serviciudadcali:canary
+docker tag serviciudadcali:latest serviciudadcali:canary  # ← Esta es la NUEVA
 
 # 2. Canary Deploy (Job 3)
-docker compose --profile canary up -d app-canary  # Puerto 8081
+# PRIMER DESPLIEGUE (no hay stable):
+docker tag serviciudadcali:canary serviciudadcali:stable
+docker compose up -d app-stable  # Puerto 8080
+
+# DESPLIEGUES POSTERIORES (ya hay stable):
+# stable sigue corriendo (versión VIEJA)
+docker compose --profile canary up -d app-canary  # Puerto 8081 (versión NUEVA)
 
 # 3. Promoción (Job 4)
-docker tag serviciudadcali-stable:current serviciudadcali:rollback  # Backup
-docker tag serviciudadcali:canary serviciudadcali:stable            # Promoción
+docker tag serviciudadcali-stable:current serviciudadcali:rollback  # Backup de VIEJA
+docker tag serviciudadcali:canary serviciudadcali:stable            # Promoción: NUEVA → stable
 docker compose up -d app-stable                                      # Puerto 8080
 
 # 4. Rollback (Job 5)
@@ -192,20 +203,30 @@ curl http://localhost:8081/actuator/health
 
 ## 🔍 Notas Importantes
 
-1. **Primera ejecución:** Si no hay versión `stable` previa, el pipeline la detecta y continúa sin hacer backup
+1. **Primer despliegue:** La primera vez que se ejecuta el pipeline, NO hay versión stable previa. Por lo tanto, la imagen construida se despliega directamente como stable (puerto 8080). El Canary real ocurre en el SEGUNDO push.
 
-2. **Tags de imágenes:**
-   - `latest`: Última imagen construida (siempre la más reciente)
-   - `canary`: Versión en prueba (puerto 8081)
-   - `stable`: Versión en producción (puerto 8080)
-   - `rollback`: Backup de versión anterior
+2. **Segundo despliegue en adelante:** 
+   - Stable (puerto 8080): Versión del push ANTERIOR (ya en producción)
+   - Canary (puerto 8081): Versión del push ACTUAL (nueva, en prueba)
+
+3. **Tags de imágenes:**
+   - `canary`: Siempre es la versión NUEVA que acabas de construir
+   - `stable`: Es la versión que está en producción (fue canary en el push anterior)
+   - `rollback`: Backup de la versión stable antes de promoción
    - `v1.0.X`: Tag con número de versión específico
 
-3. **Profiles de Docker Compose:**
+4. **Diferencia clave con implementación anterior:**
+   - ❌ **ANTES:** Se construía UNA imagen y se usaba para ambos (stable y canary) → Ambas eran la misma versión nueva
+   - ✅ **AHORA:** 
+     - Stable = Contenedor que YA está corriendo (versión anterior)
+     - Canary = Imagen nueva que acabas de construir
+     - → Son versiones DIFERENTES (vieja vs nueva)
+
+5. **Profiles de Docker Compose:**
    - Por defecto: solo levanta `mysql` y `app-stable`
    - Con `--profile canary`: levanta también `app-canary`
 
-4. **Healthchecks:** Ambas versiones tienen healthchecks automáticos para detectar fallos
+6. **Healthchecks:** Ambas versiones tienen healthchecks automáticos para detectar fallos
 
 ## 📚 Referencias
 
