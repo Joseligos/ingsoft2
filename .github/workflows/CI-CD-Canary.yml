@@ -150,9 +150,11 @@ jobs:
           cd ServiCiudadCali
           VERSION=${{ needs.build-and-test.outputs.version }}
           IMAGE_BASE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          VCS_REF=${{ github.sha }}
           
-          # Build con Docker Compose (archivo específico para build)
-          VERSION=$VERSION docker compose -f docker-compose.build.yml build
+          # Build con Docker Compose pasando argumentos de metadata
+          VERSION=$VERSION BUILD_DATE=$BUILD_DATE VCS_REF=$VCS_REF docker compose -f docker-compose.build.yml build
           
           # Esta es la NUEVA versión - etiquetar localmente
           docker tag serviciudadcali:latest serviciudadcali:canary
