@@ -14,18 +14,27 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 STABLE_PORT=8080
+REGISTRY="ghcr.io"
+IMAGE_NAME="joseligos/ingsoft2/serviciudadcali"
 
 echo -e "${CYAN}========================================${NC}"
 echo -e "${CYAN}  Rollback a Versión Anterior${NC}"
 echo -e "${CYAN}========================================${NC}"
 echo ""
 
-# Verificar que existe imagen de rollback
-if ! docker images | grep -q "serviciudadcali.*rollback"; then
+# Intentar descargar imagen de rollback desde GHCR
+echo -e "${CYAN}🔍 Buscando imagen de rollback en GHCR...${NC}"
+if docker pull ${REGISTRY}/${IMAGE_NAME}:rollback 2>/dev/null; then
+  echo -e "${GREEN}✅ Imagen de rollback descargada de GHCR${NC}"
+  docker tag ${REGISTRY}/${IMAGE_NAME}:rollback serviciudadcali:rollback
+elif docker images | grep -q "serviciudadcali.*rollback"; then
+  echo -e "${YELLOW}⚠️  Usando imagen de rollback local${NC}"
+else
   echo -e "${RED}❌ ERROR: No existe imagen de backup (rollback)${NC}"
   echo -e "${YELLOW}💡 No hay versión anterior disponible para restaurar${NC}"
   exit 1
 fi
+echo ""
 
 # Obtener versión actual (si existe)
 if docker compose ps app-stable | grep -q "Up"; then
@@ -56,9 +65,19 @@ docker compose rm -f app-stable 2>/dev/null || true
 echo -e "${GREEN}✅ Versión actual detenida${NC}"
 echo ""
 
-# Paso 2: Restaurar imagen de rollback como stable
+# Paso 2: Restaurar imagen de rollback como stable (local y GHCR)
 echo -e "${CYAN}🔄 Paso 2/4: Restaurando versión anterior...${NC}"
 docker tag serviciudadcali:rollback serviciudadcali:stable
+
+# Actualizar stable en GHCR también
+echo -e "${CYAN}📤 Actualizando STABLE en GHCR...${NC}"
+docker tag serviciudadcali:rollback ${REGISTRY}/${IMAGE_NAME}:stable
+if docker push ${REGISTRY}/${IMAGE_NAME}:stable 2>/dev/null; then
+  echo -e "${GREEN}✅ STABLE restaurada en GHCR${NC}"
+else
+  echo -e "${YELLOW}⚠️  Solo restaurada localmente${NC}"
+fi
+
 docker compose up -d app-stable
 
 echo -e "${GREEN}✅ Versión anterior desplegada${NC}"

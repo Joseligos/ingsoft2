@@ -14,6 +14,8 @@ NC='\033[0m' # No Color
 # Variables
 VERSION=${1:-$(git describe --tags --always --dirty 2>/dev/null || echo "dev-$(date +%Y%m%d-%H%M%S)")}
 CANARY_PORT=8081
+REGISTRY="ghcr.io"
+IMAGE_NAME="joseligos/ingsoft2/serviciudadcali"
 
 echo -e "${CYAN}========================================${NC}"
 echo -e "${CYAN}  Despliegue Canary - ServiCiudadCali${NC}"
@@ -21,8 +23,20 @@ echo -e "${CYAN}========================================${NC}"
 echo -e "${CYAN}Versión: ${VERSION}${NC}"
 echo ""
 
-# Verificar si stable está corriendo
-if ! docker ps | grep -q "serviciudadcali-stable"; then
+# Intentar descargar versión stable desde GHCR
+echo -e "${CYAN}🔍 Verificando versión STABLE en GHCR...${NC}"
+if docker pull ${REGISTRY}/${IMAGE_NAME}:stable 2>/dev/null; then
+  echo -e "${GREEN}✅ Imagen STABLE encontrada en GHCR${NC}"
+  docker tag ${REGISTRY}/${IMAGE_NAME}:stable serviciudadcali:stable
+  STABLE_EXISTS=true
+else
+  echo -e "${YELLOW}⚠️  No hay imagen STABLE en GHCR${NC}"
+  STABLE_EXISTS=false
+fi
+echo ""
+
+# Verificar si stable existe (en GHCR, no en docker ps)
+if [ "$STABLE_EXISTS" = "false" ]; then
   echo -e "${YELLOW}========================================${NC}"
   echo -e "${YELLOW}⚠️  PRIMER DESPLIEGUE - No hay versión stable${NC}"
   echo -e "${YELLOW}========================================${NC}"
@@ -44,6 +58,20 @@ if ! docker ps | grep -q "serviciudadcali-stable"; then
     
     # En el primer despliegue, la nueva imagen se convierte en stable
     docker tag serviciudadcali:latest serviciudadcali:stable
+    
+    # Subir a GHCR para persistir entre despliegues
+    echo -e "${CYAN}📤 Subiendo STABLE a GHCR...${NC}"
+    docker tag serviciudadcali:stable ${REGISTRY}/${IMAGE_NAME}:stable
+    docker tag serviciudadcali:stable ${REGISTRY}/${IMAGE_NAME}:${VERSION}
+    
+    # Intentar push (requiere docker login ghcr.io previamente)
+    if docker push ${REGISTRY}/${IMAGE_NAME}:stable 2>/dev/null && docker push ${REGISTRY}/${IMAGE_NAME}:${VERSION} 2>/dev/null; then
+      echo -e "${GREEN}✅ Imagen STABLE subida a GHCR${NC}"
+    else
+      echo -e "${YELLOW}⚠️  No se pudo subir a GHCR (ejecute: docker login ghcr.io)${NC}"
+      echo -e "${YELLOW}⚠️  La imagen solo estará disponible localmente${NC}"
+    fi
+    echo ""
     
     # Desplegar MySQL
     docker compose up -d mysql
@@ -82,13 +110,18 @@ if ! docker ps | grep -q "serviciudadcali-stable"; then
 fi
 
 echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}✅ DESPLIEGUE CANARY - Stable ya existe${NC}"
+echo -e "${GREEN}✅ DESPLIEGUE CANARY - Stable existe en GHCR${NC}"
 echo -e "${GREEN}========================================${NC}"
 
-# Obtener versión de stable actual (la vieja)
-STABLE_VERSION=$(docker inspect serviciudadcali-stable --format='{{range .Config.Env}}{{println .}}{{end}}' | grep VERSION | cut -d'=' -f2 || echo "unknown")
-echo -e "${CYAN}📦 Versión STABLE actual (vieja): ${STABLE_VERSION}${NC}"
-echo -e "${CYAN}📦 Versión CANARY nueva: ${VERSION}${NC}"
+# Obtener versión de stable desde la imagen de GHCR
+STABLE_VERSION=$(docker inspect ${REGISTRY}/${IMAGE_NAME}:stable --format='{{index .Config.Labels "com.serviciudadcali.version"}}' 2>/dev/null || echo "unknown")
+if [ "$STABLE_VERSION" = "unknown" ] || [ -z "$STABLE_VERSION" ]; then
+  # Fallback: intentar obtener de variable de entorno
+  STABLE_VERSION=$(docker inspect serviciudadcali:stable --format='{{range .Config.Env}}{{println .}}{{end}}' | grep VERSION | cut -d'=' -f2 || echo "unknown")
+fi
+
+echo -e "${CYAN}📦 Versión STABLE actual (push anterior): ${STABLE_VERSION}${NC}"
+echo -e "${CYAN}📦 Versión CANARY nueva (push actual): ${VERSION}${NC}"
 echo ""
 
 echo -e "${YELLOW}Se desplegará la NUEVA versión como Canary en paralelo:${NC}"
@@ -107,6 +140,17 @@ echo ""
 echo -e "${CYAN}🐳 Paso 2/5: Construyendo imagen Docker...${NC}"
 VERSION=${VERSION} docker compose -f docker-compose.build.yml build
 docker tag serviciudadcali:latest serviciudadcali:canary
+
+# Subir canary a GHCR
+echo -e "${CYAN}📤 Subiendo CANARY a GHCR...${NC}"
+docker tag serviciudadcali:canary ${REGISTRY}/${IMAGE_NAME}:canary
+docker tag serviciudadcali:canary ${REGISTRY}/${IMAGE_NAME}:${VERSION}
+
+if docker push ${REGISTRY}/${IMAGE_NAME}:canary 2>/dev/null && docker push ${REGISTRY}/${IMAGE_NAME}:${VERSION} 2>/dev/null; then
+  echo -e "${GREEN}✅ Imagen CANARY subida a GHCR${NC}"
+else
+  echo -e "${YELLOW}⚠️  No se pudo subir a GHCR (ejecute: docker login ghcr.io)${NC}"
+fi
 echo -e "${GREEN}✅ Imagen construida y etiquetada como canary${NC}"
 echo ""
 
@@ -117,10 +161,21 @@ docker compose --profile canary rm -f app-canary 2>/dev/null || true
 echo -e "${GREEN}✅ Canary anterior removido${NC}"
 echo ""
 
-# Paso 4: Desplegar nueva versión Canary
-echo -e "${CYAN}🚀 Paso 4/5: Desplegando nueva versión Canary...${NC}"
+# Paso 4: Desplegar AMBAS versiones (stable vieja + canary nueva)
+echo -e "${CYAN}🚀 Paso 4/5: Desplegando versiones...${NC}"
+
+# Desplegar STABLE (versión del push anterior)
+STABLE_VERSION_NUM=$(echo "$STABLE_VERSION" | grep -oP '[0-9.]+' || echo "1.0.0")
+echo -e "${CYAN}  - Desplegando STABLE v${STABLE_VERSION} en puerto 8080...${NC}"
+VERSION=${STABLE_VERSION_NUM} docker compose up -d app-stable
+
+# Desplegar CANARY (versión del push actual)
+echo -e "${CYAN}  - Desplegando CANARY v${VERSION} en puerto 8081...${NC}"
 VERSION=${VERSION} docker compose --profile canary up -d app-canary
-echo -e "${GREEN}✅ Canary desplegado en puerto ${CANARY_PORT}${NC}"
+
+echo -e "${GREEN}✅ Ambas versiones desplegadas${NC}"
+echo -e "  🔗 Puerto 8080: STABLE v${STABLE_VERSION} (push anterior)${NC}"
+echo -e "  🔗 Puerto 8081: CANARY v${VERSION} (push actual)${NC}"
 echo ""
 
 # Paso 5: Esperar inicialización

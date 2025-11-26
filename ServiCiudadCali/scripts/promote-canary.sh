@@ -14,6 +14,8 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 STABLE_PORT=8080
+REGISTRY="ghcr.io"
+IMAGE_NAME="joseligos/ingsoft2/serviciudadcali"
 
 echo -e "${CYAN}========================================${NC}"
 echo -e "${CYAN}  Promoción Canary → Producción${NC}"
@@ -46,18 +48,24 @@ fi
 
 echo ""
 
-# Paso 1: Crear backup etiquetando imagen actual
-echo -e "${CYAN}📦 Paso 1/5: Creando backup de versión actual...${NC}"
-if docker compose ps app-stable | grep -q "Up"; then
-  CURRENT_IMAGE=$(docker inspect serviciudadcali-stable --format='{{.Image}}' 2>/dev/null || echo "")
-  if [ -n "$CURRENT_IMAGE" ]; then
-    docker tag $CURRENT_IMAGE serviciudadcali:rollback
-    echo -e "${GREEN}✅ Backup creado como serviciudadcali:rollback${NC}"
+# Paso 1: Crear backup de stable actual en GHCR
+echo -e "${CYAN}📦 Paso 1/5: Creando backup de versión actual en GHCR...${NC}"
+
+# Descargar stable actual de GHCR (si existe)
+if docker pull ${REGISTRY}/${IMAGE_NAME}:stable 2>/dev/null; then
+  # Hacer backup etiquetándola como rollback localmente y en GHCR
+  docker tag ${REGISTRY}/${IMAGE_NAME}:stable serviciudadcali:rollback
+  docker tag ${REGISTRY}/${IMAGE_NAME}:stable ${REGISTRY}/${IMAGE_NAME}:rollback
+  
+  # Subir backup a GHCR
+  if docker push ${REGISTRY}/${IMAGE_NAME}:rollback 2>/dev/null; then
+    echo -e "${GREEN}✅ Backup creado en GHCR como :rollback${NC}"
   else
-    echo -e "${YELLOW}⚠️  No se pudo hacer backup${NC}"
+    docker tag ${REGISTRY}/${IMAGE_NAME}:stable serviciudadcali:rollback
+    echo -e "${YELLOW}⚠️  Backup creado solo localmente (no se pudo subir a GHCR)${NC}"
   fi
 else
-  echo -e "${YELLOW}⚠️  No hay versión en producción para hacer backup${NC}"
+  echo -e "${YELLOW}⚠️  No hay versión stable previa en GHCR (primer despliegue)${NC}"
 fi
 echo ""
 
@@ -68,9 +76,19 @@ docker compose rm -f app-stable 2>/dev/null || true
 echo -e "${GREEN}✅ Versión anterior detenida${NC}"
 echo ""
 
-# Paso 3: Etiquetar imagen canary como stable
+# Paso 3: Etiquetar imagen canary como stable y subir a GHCR
 echo -e "${CYAN}🐳 Paso 3/5: Promoviendo imagen Canary...${NC}"
 docker tag serviciudadcali:canary serviciudadcali:stable
+docker tag serviciudadcali:canary ${REGISTRY}/${IMAGE_NAME}:stable
+
+# Subir nueva stable a GHCR
+echo -e "${CYAN}📤 Subiendo nueva STABLE a GHCR...${NC}"
+if docker push ${REGISTRY}/${IMAGE_NAME}:stable 2>/dev/null; then
+  echo -e "${GREEN}✅ Nueva STABLE subida a GHCR${NC}"
+else
+  echo -e "${YELLOW}⚠️  No se pudo subir a GHCR (solo disponible localmente)${NC}"
+fi
+
 echo -e "${GREEN}✅ Imagen promovida: serviciudadcali:canary → serviciudadcali:stable${NC}"
 echo ""
 

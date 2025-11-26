@@ -15,6 +15,8 @@ NC='\033[0m' # No Color
 
 STABLE_PORT=8080
 CANARY_PORT=8081
+REGISTRY="ghcr.io"
+IMAGE_NAME="joseligos/ingsoft2/serviciudadcali"
 
 echo -e "${CYAN}========================================${NC}"
 echo -e "${CYAN}  Estado del Sistema${NC}"
@@ -126,14 +128,47 @@ echo "────────────────────────�
 docker compose ps
 echo ""
 
-# IMÁGENES DOCKER
-echo -e "${CYAN}🖼️  IMÁGENES DOCKER${NC}"
+# IMÁGENES DOCKER LOCALES
+echo -e "${CYAN}🖼️  IMÁGENES DOCKER LOCALES${NC}"
 echo "───────────────────────────────────────"
 if docker images | grep -q "serviciudadcali"; then
   docker images serviciudadcali --format "table {{.Repository}}:{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}"
 else
-  echo -e "${YELLOW}⚠️  No hay imágenes de serviciudadcali${NC}"
+  echo -e "${YELLOW}⚠️  No hay imágenes locales de serviciudadcali${NC}"
 fi
+echo ""
+
+# IMÁGENES EN GHCR
+echo -e "${CYAN}☁️  IMÁGENES EN GHCR${NC}"
+echo "───────────────────────────────────────"
+echo -e "Registry: ${REGISTRY}/${IMAGE_NAME}"
+echo ""
+
+# Verificar stable en GHCR
+if docker pull ${REGISTRY}/${IMAGE_NAME}:stable 2>/dev/null 1>&2; then
+  STABLE_TAG=$(docker inspect ${REGISTRY}/${IMAGE_NAME}:stable --format='{{index .Config.Labels "com.serviciudadcali.version"}}' 2>/dev/null || echo "unknown")
+  echo -e "  ${GREEN}✅ stable${NC} (versión: ${STABLE_TAG})"
+else
+  echo -e "  ${YELLOW}⚪ stable (no encontrada)${NC}"
+fi
+
+# Verificar canary en GHCR
+if docker pull ${REGISTRY}/${IMAGE_NAME}:canary 2>/dev/null 1>&2; then
+  CANARY_TAG=$(docker inspect ${REGISTRY}/${IMAGE_NAME}:canary --format='{{index .Config.Labels "com.serviciudadcali.version"}}' 2>/dev/null || echo "unknown")
+  echo -e "  ${GREEN}✅ canary${NC} (versión: ${CANARY_TAG})"
+else
+  echo -e "  ${YELLOW}⚪ canary (no encontrada)${NC}"
+fi
+
+# Verificar rollback en GHCR
+if docker pull ${REGISTRY}/${IMAGE_NAME}:rollback 2>/dev/null 1>&2; then
+  ROLLBACK_TAG=$(docker inspect ${REGISTRY}/${IMAGE_NAME}:rollback --format='{{index .Config.Labels "com.serviciudadcali.version"}}' 2>/dev/null || echo "unknown")
+  echo -e "  ${GREEN}✅ rollback${NC} (versión: ${ROLLBACK_TAG})"
+else
+  echo -e "  ${YELLOW}⚪ rollback (no encontrada)${NC}"
+fi
+echo ""
+echo -e "${CYAN}💡 Tip: Las imágenes en GHCR persisten entre despliegues${NC}"
 echo ""
 
 # RECURSOS

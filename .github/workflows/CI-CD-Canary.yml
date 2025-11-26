@@ -133,32 +133,49 @@ jobs:
           name: serviciudadcali-${{ needs.build-and-test.outputs.version }}
           path: ServiCiudadCali/target/
 
-      - name: 🔐 Login a Docker Hub (opcional)
-        if: env.DOCKERHUB_USERNAME != ''
+      - name: 🔐 Login a GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-        continue-on-error: true
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 🏗️ Build imagen Docker NUEVA (Canary)
         run: |
           cd ServiCiudadCali
           VERSION=${{ needs.build-and-test.outputs.version }}
+          IMAGE_BASE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           
           # Build con Docker Compose (archivo específico para build)
           VERSION=$VERSION docker compose -f docker-compose.build.yml build
           
-          # Esta es la NUEVA versión - etiquetar como canary
+          # Esta es la NUEVA versión - etiquetar localmente
           docker tag serviciudadcali:latest serviciudadcali:canary
           docker tag serviciudadcali:latest serviciudadcali:$VERSION
           
+          # Etiquetar para GHCR
+          docker tag serviciudadcali:latest ${IMAGE_BASE}:canary
+          docker tag serviciudadcali:latest ${IMAGE_BASE}:${VERSION}
+          
           echo "✅ Imagen NUEVA creada: serviciudadcali:canary (versión $VERSION)"
 
-      - name: 💾 Guardar imagen Canary (nueva)
+      - name: 📤 Subir imagen Canary a GHCR
+        run: |
+          VERSION=${{ needs.build-and-test.outputs.version }}
+          IMAGE_BASE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          
+          # Subir la nueva versión como 'canary' y con su versión específica
+          docker push ${IMAGE_BASE}:canary
+          docker push ${IMAGE_BASE}:${VERSION}
+          
+          echo "✅ Imagen Canary subida a GHCR:"
+          echo "   - ${IMAGE_BASE}:canary"
+          echo "   - ${IMAGE_BASE}:${VERSION}"
+
+      - name: 💾 Guardar imagen Canary localmente (para artefacto)
         run: |
           docker save serviciudadcali:canary | gzip > serviciudadcali-canary.tar.gz
-          echo "✅ Imagen Canary guardada"
+          echo "✅ Imagen Canary guardada localmente"
 
       - name: 📤 Subir imagen Canary como artefacto
         uses: actions/upload-artifact@v4
@@ -180,25 +197,54 @@ jobs:
       - name: 📥 Checkout código
         uses: actions/checkout@v4
 
+      - name: 🔐 Login a GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: 📥 Descargar imagen Canary (nueva)
         uses: actions/download-artifact@v4
         with:
           name: docker-image-canary
           path: .
 
-      - name: 📦 Cargar imagen Canary
+      - name: 📦 Cargar imagen Canary (nueva)
         run: |
           docker load < serviciudadcali-canary.tar.gz
           echo "✅ Imagen Canary (NUEVA versión) cargada"
+
+      - name: 📥 Verificar y descargar imagen Stable anterior de GHCR
+        run: |
+          IMAGE_BASE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          
+          # Intentar descargar la imagen stable del registry
+          if docker pull ${IMAGE_BASE}:stable 2>/dev/null; then
+            echo "✅ Imagen STABLE anterior encontrada en GHCR"
+            # Etiquetar localmente para usar con docker-compose
+            docker tag ${IMAGE_BASE}:stable serviciudadcali:stable
+            
+            # Obtener la versión del stable
+            STABLE_VERSION=$(docker inspect ${IMAGE_BASE}:stable --format='{{range .Config.Labels}}{{println .}}{{end}}' | grep -oP 'version=\K[^"]+' || echo "unknown")
+            echo "📦 Versión STABLE descargada: ${STABLE_VERSION}"
+            echo "STABLE_EXISTS=true" >> $GITHUB_ENV
+            echo "STABLE_VERSION=${STABLE_VERSION}" >> $GITHUB_ENV
+          else
+            echo "ℹ️  No hay imagen STABLE anterior en GHCR (primer despliegue)"
+            echo "STABLE_EXISTS=false" >> $GITHUB_ENV
+          fi
 
       - name: 🐳 Configurar y levantar servicios con Docker Compose
         run: |
           cd ServiCiudadCali
           VERSION=${{ needs.build-and-test.outputs.version }}
           
-          # Detener canary anterior si existe
+          # Detener contenedores previos si existen
           docker compose --profile canary stop app-canary 2>/dev/null || true
           docker compose --profile canary rm -f app-canary 2>/dev/null || true
+          docker compose stop app-stable 2>/dev/null || true
+          docker compose rm -f app-stable 2>/dev/null || true
           
           # Levantar MySQL si no está corriendo
           docker compose up -d mysql
@@ -206,10 +252,10 @@ jobs:
           # Esperar que MySQL esté listo
           sleep 10
           
-          # CRITICAL: Verificar si hay versión stable corriendo
-          if ! docker ps | grep -q "serviciudadcali-stable"; then
+          # Verificar si hay versión stable en GHCR (no en docker ps)
+          if [ "$STABLE_EXISTS" = "false" ]; then
             echo "=========================================="
-            echo "⚠️  PRIMER DESPLIEGUE - No hay versión stable"
+            echo "⚠️  PRIMER DESPLIEGUE - No hay versión stable en GHCR"
             echo "=========================================="
             
             # En el PRIMER despliegue, la imagen canary se convierte en stable
@@ -226,21 +272,24 @@ jobs:
             echo "ℹ️  y la nueva será 'canary' para comparación"
           else
             echo "=========================================="
-            echo "✅ DESPLIEGUE CANARY - Stable ya existe"
+            echo "✅ DESPLIEGUE CANARY - Stable existe en GHCR"
             echo "=========================================="
             
-            # Obtener info de la versión stable actual (la vieja)
-            STABLE_VERSION=$(docker inspect serviciudadcali-stable --format='{{range .Config.Env}}{{println .}}{{end}}' | grep VERSION | cut -d'=' -f2 || echo "unknown")
-            echo "📦 Versión STABLE actual (vieja): $STABLE_VERSION"
-            echo "📦 Versión CANARY nueva: $VERSION"
+            echo "📦 Versión STABLE actual (vieja del push anterior): $STABLE_VERSION"
+            echo "📦 Versión CANARY nueva (del push actual): $VERSION"
             echo ""
             
-            # Levantar Canary (NUEVA versión) en paralelo con Stable (vieja)
+            # Desplegar AMBAS versiones:
+            # 1. STABLE (versión VIEJA del push anterior)
+            STABLE_VERSION_NUM=$(echo "$STABLE_VERSION" | grep -oP '[0-9.]+' || echo "1.0.0")
+            VERSION=$STABLE_VERSION_NUM docker compose up -d app-stable
+            
+            # 2. CANARY (versión NUEVA del push actual)
             VERSION=$VERSION docker compose --profile canary up -d app-canary
             
-            echo "✅ Versión Canary (NUEVA) desplegada en puerto 8081"
-            echo "🔗 Puerto 8080: STABLE v${STABLE_VERSION} (versión VIEJA en producción)"
-            echo "🔗 Puerto 8081: CANARY v${VERSION} (versión NUEVA en prueba)"
+            echo "✅ Despliegue Canary completado:"
+            echo "🔗 Puerto 8080: STABLE v${STABLE_VERSION} (versión VIEJA - push anterior)"
+            echo "🔗 Puerto 8081: CANARY v${VERSION} (versión NUEVA - push actual)"
           fi
           
           # Mostrar estado de contenedores
@@ -454,6 +503,13 @@ jobs:
       - name: 📥 Checkout código
         uses: actions/checkout@v4
 
+      - name: 🔐 Login a GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: 📥 Descargar imagen Canary (nueva)
         uses: actions/download-artifact@v4
         with:
@@ -465,36 +521,43 @@ jobs:
           docker load < serviciudadcali-canary.tar.gz
           echo "✅ Imagen Canary (nueva versión) cargada"
 
-      - name: 🔄 Backup versión Stable actual (la vieja)
+      - name: 🔄 Backup versión Stable actual (la vieja) en GHCR
         run: |
-          cd ServiCiudadCali
-          # Si hay un stable corriendo, hacer backup de su imagen
-          if docker ps | grep -q "serviciudadcali-stable"; then
-            CURRENT_IMAGE=$(docker inspect serviciudadcali-stable --format='{{.Image}}' 2>/dev/null || echo "")
-            if [ -n "$CURRENT_IMAGE" ]; then
-              docker tag $CURRENT_IMAGE serviciudadcali:rollback
-              STABLE_VERSION=$(docker inspect serviciudadcali-stable --format='{{range .Config.Env}}{{println .}}{{end}}' | grep VERSION | cut -d'=' -f2 || echo "unknown")
-              echo "✅ Backup de versión stable (v${STABLE_VERSION}) guardado como serviciudadcali:rollback"
-            else
-              echo "⚠️  No se pudo hacer backup - no hay imagen actual"
-            fi
+          IMAGE_BASE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          
+          # Descargar stable actual de GHCR (si existe)
+          if docker pull ${IMAGE_BASE}:stable 2>/dev/null; then
+            # Hacer backup etiquetándola como rollback
+            docker tag ${IMAGE_BASE}:stable ${IMAGE_BASE}:rollback
+            docker push ${IMAGE_BASE}:rollback
+            
+            STABLE_VERSION=$(docker inspect ${IMAGE_BASE}:stable --format='{{range .Config.Labels}}{{println .}}{{end}}' | grep -oP 'version=\K[^"]+' || echo "unknown")
+            echo "✅ Backup de versión stable (v${STABLE_VERSION}) guardado en GHCR como :rollback"
           else
-            echo "ℹ️  No hay versión stable previa (primer despliegue)"
+            echo "ℹ️  No hay versión stable previa para hacer backup (primer despliegue)"
           fi
 
-      - name: 🚀 Promover Canary a Producción
+      - name: 🚀 Promover Canary a Producción y actualizar GHCR
         run: |
           cd ServiCiudadCali
           VERSION=${{ needs.build-and-test.outputs.version }}
+          IMAGE_BASE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           
-          # Detener stable actual (versión vieja)
+          # Detener contenedores locales
           docker compose stop app-stable 2>/dev/null || true
           docker compose rm -f app-stable 2>/dev/null || true
+          docker compose --profile canary stop app-canary 2>/dev/null || true
+          docker compose --profile canary rm -f app-canary 2>/dev/null || true
           
           # Promover: la imagen canary (nueva) se convierte en stable
           docker tag serviciudadcali:canary serviciudadcali:stable
           
+          # IMPORTANTE: Subir la nueva stable a GHCR
+          docker tag serviciudadcali:canary ${IMAGE_BASE}:stable
+          docker push ${IMAGE_BASE}:stable
+          
           echo "🔄 Promoción: Canary (v${VERSION}) → Stable"
+          echo "✅ Nueva versión STABLE subida a GHCR: ${IMAGE_BASE}:stable"
           
           # Desplegar NUEVA versión como stable en producción
           VERSION=$VERSION docker compose up -d app-stable
@@ -553,22 +616,46 @@ jobs:
     if: failure()
     
     steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: 🔐 Login a GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: 🔄 Ejecutar Rollback con Docker Compose
         run: |
           cd ServiCiudadCali
+          IMAGE_BASE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          
           echo "🔄 Iniciando rollback a versión anterior..."
           
-          # Detener versión fallida
-          docker compose stop app-stable 2>/dev/null || true
-          docker compose rm -f app-stable 2>/dev/null || true
-          
-          # Restaurar imagen de rollback como stable
-          docker tag serviciudadcali:rollback serviciudadcali:stable
-          
-          # Desplegar versión anterior con Docker Compose
-          docker compose up -d app-stable
-          
-          echo "✅ Rollback completado - Versión anterior restaurada como STABLE"
+          # Descargar imagen de rollback desde GHCR
+          if docker pull ${IMAGE_BASE}:rollback 2>/dev/null; then
+            echo "✅ Imagen de rollback descargada de GHCR"
+            
+            # Detener versión fallida
+            docker compose stop app-stable 2>/dev/null || true
+            docker compose rm -f app-stable 2>/dev/null || true
+            
+            # Restaurar imagen de rollback como stable (local y en GHCR)
+            docker tag ${IMAGE_BASE}:rollback serviciudadcali:stable
+            docker tag ${IMAGE_BASE}:rollback ${IMAGE_BASE}:stable
+            docker push ${IMAGE_BASE}:stable
+            
+            # Desplegar versión anterior con Docker Compose
+            docker compose up -d app-stable
+            
+            echo "✅ Rollback completado - Versión anterior restaurada como STABLE"
+            echo "✅ Imagen stable actualizada en GHCR"
+          else
+            echo "❌ ERROR: No se encontró imagen de rollback en GHCR"
+            echo "⚠️  No se puede hacer rollback automático"
+            exit 1
+          fi
 
       - name: 📧 Notificar fallo
         run: |
