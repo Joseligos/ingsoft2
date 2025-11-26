@@ -575,6 +575,12 @@ jobs:
       - name: ⏳ Esperar inicialización
         run: sleep 30
 
+      - name: 🧪 PRUEBA DE ROLLBACK - Fallo simulado
+        run: |
+          echo "🧪 SIMULANDO FALLO PARA PROBAR ROLLBACK..."
+          echo "❌ Este paso falla intencionalmente"
+          exit 1
+
       - name: 🔍 Health Check Producción
         run: |
           echo "🔍 Verificando health de versión en producción..."
