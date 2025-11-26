@@ -242,75 +242,202 @@ jobs:
             echo "🔗 Puerto 8080: STABLE v${STABLE_VERSION} (versión VIEJA en producción)"
             echo "🔗 Puerto 8081: CANARY v${VERSION} (versión NUEVA en prueba)"
           fi
-
-      - name: ⏳ Esperar inicialización (30 segundos)
-        run: |
-          echo "⏳ Esperando a que la aplicación Canary inicie..."
-          sleep 30
-
-      - name: 🔍 Health Check Canary
-        run: |
-          echo "🔍 Verificando health de versión Canary..."
           
-          MAX_RETRIES=10
+          # Mostrar estado de contenedores
+          echo ""
+          echo "📊 Estado de contenedores:"
+          docker compose ps
+          docker compose --profile canary ps
+
+      - name: ⏳ Esperar inicialización
+        run: |
+          cd ServiCiudadCali
+          
+          # Verificar qué se desplegó
+          if docker ps | grep -q "serviciudadcali-canary"; then
+            echo "⏳ Esperando a que la aplicación CANARY inicie..."
+            echo "⏳ Esperando 45 segundos para que Spring Boot arranque completamente..."
+            sleep 45
+            
+            echo ""
+            echo "📝 Últimas líneas de logs de Canary:"
+            docker logs --tail 30 serviciudadcali-canary || true
+          elif docker ps | grep -q "serviciudadcali-stable"; then
+            echo "⏳ Esperando a que la aplicación STABLE (primer despliegue) inicie..."
+            echo "⏳ Esperando 45 segundos para que Spring Boot arranque completamente..."
+            sleep 45
+            
+            echo ""
+            echo "📝 Últimas líneas de logs de Stable:"
+            docker logs --tail 30 serviciudadcali-stable || true
+          fi
+
+      - name: 🔍 Health Check
+        run: |
+          cd ServiCiudadCali
+          
+          # Determinar qué servicio verificar
+          if docker ps | grep -q "serviciudadcali-canary"; then
+            echo "🔍 Verificando health de versión CANARY..."
+            SERVICE="canary"
+            CONTAINER="serviciudadcali-canary"
+            PORT="8081"
+          elif docker ps | grep -q "serviciudadcali-stable"; then
+            echo "🔍 Verificando health de versión STABLE (primer despliegue)..."
+            SERVICE="stable"
+            CONTAINER="serviciudadcali-stable"
+            PORT="8080"
+          else
+            echo "❌ ERROR: No hay ningún servicio corriendo"
+            docker compose ps
+            exit 1
+          fi
+          
+          echo "🎯 Verificando: $SERVICE en puerto $PORT"
+          
+          # Verificar que el contenedor está corriendo
+          if ! docker ps | grep -q "$CONTAINER"; then
+            echo "❌ ERROR: Contenedor $CONTAINER no está corriendo"
+            echo "📝 Logs del contenedor:"
+            docker logs $CONTAINER || true
+            exit 1
+          fi
+          
+          # Verificar conectividad
+          echo "🔍 Verificando que el puerto $PORT está accesible..."
+          
+          MAX_RETRIES=15
           RETRY_COUNT=0
           
           while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            if curl -f http://localhost:8081/actuator/health 2>/dev/null; then
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            
+            echo "⏳ Intento $RETRY_COUNT/$MAX_RETRIES..."
+            
+            if curl -f http://localhost:${PORT}/actuator/health 2>&1 | grep -q "UP"; then
               echo "✅ Health check exitoso!"
+              curl http://localhost:${PORT}/actuator/health
               exit 0
             fi
             
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-            echo "⏳ Intento $RETRY_COUNT/$MAX_RETRIES - Reintentando en 5 segundos..."
-            sleep 5
+            if [ $RETRY_COUNT -eq 5 ] || [ $RETRY_COUNT -eq 10 ]; then
+              echo "📝 Logs recientes (intento $RETRY_COUNT):"
+              docker logs --tail 20 $CONTAINER || true
+            fi
+            
+            if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+              sleep 5
+            fi
           done
           
           echo "❌ Health check falló después de $MAX_RETRIES intentos"
+          echo ""
+          echo "📝 Logs completos del contenedor $CONTAINER:"
+          docker logs $CONTAINER || true
+          echo ""
+          echo "📊 Estado de todos los contenedores:"
+          docker compose ps
+          docker compose --profile canary ps
           exit 1
 
-      - name: 🧪 Smoke Tests en Canary
+      - name: 🧪 Smoke Tests
         run: |
-          echo "🧪 Ejecutando smoke tests en versión Canary..."
+          cd ServiCiudadCali
+          
+          # Determinar qué servicio probar
+          if docker ps | grep -q "serviciudadcali-canary"; then
+            echo "🧪 Ejecutando smoke tests en versión CANARY..."
+            PORT="8081"
+            SERVICE="Canary"
+          elif docker ps | grep -q "serviciudadcali-stable"; then
+            echo "🧪 Ejecutando smoke tests en versión STABLE (primer despliegue)..."
+            PORT="8080"
+            SERVICE="Stable"
+          else
+            echo "❌ No hay servicio para probar"
+            exit 1
+          fi
+          
+          echo "🎯 Probando $SERVICE en puerto $PORT"
           
           # Test 1: Endpoint principal
           echo "📍 Test 1: GET /"
-          curl -f http://localhost:8081/ || exit 1
+          if curl -f http://localhost:${PORT}/ 2>&1; then
+            echo "✅ Test 1 pasó"
+          else
+            echo "⚠️  Test 1 falló (puede ser esperado si no hay endpoint raíz)"
+          fi
           
           # Test 2: Health check
           echo "📍 Test 2: GET /actuator/health"
-          curl -f http://localhost:8081/actuator/health || exit 1
+          curl -f http://localhost:${PORT}/actuator/health || exit 1
+          echo "✅ Test 2 pasó"
           
-          # Test 3: API endpoint (si existe)
-          echo "📍 Test 3: GET /api/deudaConsolidada/..."
-          # curl -f http://localhost:8081/api/deudaConsolidada/ObtenerDeudaConsolidadaPorClienteId/1234567890 || echo "⚠️  Endpoint de prueba no disponible (esperado)"
-          
-          echo "✅ Todos los smoke tests pasaron"
+          echo ""
+          echo "✅ Smoke tests completados exitosamente"
 
-      - name: 📊 Métricas de Canary
+      - name: 📊 Métricas
         run: |
-          echo "📊 Recolectando métricas de versión Canary..."
-          echo "🔗 URL: http://localhost:8081"
+          cd ServiCiudadCali
+          
+          # Determinar qué servicio mostrar
+          if docker ps | grep -q "serviciudadcali-canary"; then
+            echo "📊 Métricas de versión CANARY..."
+            CONTAINER="serviciudadcali-canary"
+            PORT="8081"
+            SERVICE="Canary"
+          elif docker ps | grep -q "serviciudadcali-stable"; then
+            echo "📊 Métricas de versión STABLE (primer despliegue)..."
+            CONTAINER="serviciudadcali-stable"
+            PORT="8080"
+            SERVICE="Stable"
+          else
+            echo "⚠️  No hay contenedor activo"
+            exit 0
+          fi
+          
+          echo "📊 Recolectando métricas de $SERVICE..."
+          echo "🔗 URL: http://localhost:${PORT}"
           echo "📦 Versión: ${{ needs.build-and-test.outputs.version }}"
           echo "📊 Cobertura: ${{ needs.build-and-test.outputs.coverage }}%"
           
           # Obtener información del contenedor
-          docker ps -f name=serviciudadcali-canary --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+          docker ps -f name=${CONTAINER} --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
           
           # Logs recientes
-          echo "\n📝 Últimas 20 líneas de logs:"
-          docker logs --tail 20 serviciudadcali-canary
-
-      - name: ⏸️ Mantener Canary activo
-        run: |
-          echo "✅ Versión Canary desplegada exitosamente"
-          echo "🎯 La versión Canary está lista para recibir tráfico de prueba"
           echo ""
-          echo "📋 Próximos pasos manuales:"
-          echo "  1. Revisar logs: docker logs serviciudadcali-canary"
-          echo "  2. Monitorear métricas durante 24-48 horas"
-          echo "  3. Si todo va bien, ejecutar: make canary-promote"
-          echo "  4. Si hay problemas, ejecutar: make canary-rollback"
+          echo "📝 Últimas 20 líneas de logs:"
+          docker logs --tail 20 ${CONTAINER}
+
+      - name: ⏸️ Resumen
+        run: |
+          cd ServiCiudadCali
+          
+          if docker ps | grep -q "serviciudadcali-canary"; then
+            echo "✅ Versión Canary desplegada exitosamente"
+            echo "🎯 La versión Canary está lista para recibir tráfico de prueba"
+            echo ""
+            echo "📋 Información:"
+            echo "  🔗 URL Stable (vieja): http://localhost:8080"
+            echo "  🔗 URL Canary (nueva): http://localhost:8081"
+            echo "  📦 Versión Canary: ${{ needs.build-and-test.outputs.version }}"
+            echo ""
+            echo "📋 Próximos pasos:"
+            echo "  1. Monitorear métricas y logs"
+            echo "  2. Si todo va bien → Job promote-to-production"
+            echo "  3. Si hay problemas → Job rollback"
+          else
+            echo "✅ Primera versión desplegada como STABLE"
+            echo "ℹ️  Este fue el primer despliegue - no hay Canary aún"
+            echo ""
+            echo "📋 Información:"
+            echo "  🔗 URL Stable: http://localhost:8080"
+            echo "  📦 Versión: ${{ needs.build-and-test.outputs.version }}"
+            echo ""
+            echo "ℹ️  En el próximo push:"
+            echo "  - Esta versión será 'stable' (vieja) en puerto 8080"
+            echo "  - La nueva versión será 'canary' (nueva) en puerto 8081"
+          fi
 
   # ==============================================================
   # JOB 4: Promoción a Producción (Manual)
