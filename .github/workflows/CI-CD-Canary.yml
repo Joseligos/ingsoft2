@@ -206,11 +206,29 @@ jobs:
           # Esperar que MySQL esté listo
           sleep 10
           
-          # Levantar Canary con Docker Compose
+          # Verificar si hay versión stable corriendo, si no, desplegarla
+          if ! docker ps | grep -q "serviciudadcali-stable"; then
+            echo "⚠️  No hay versión stable, desplegando primero..."
+            
+            # Si no existe imagen stable, usar latest como base
+            if ! docker images | grep -q "serviciudadcali.*stable"; then
+              docker tag serviciudadcali:latest serviciudadcali:stable
+            fi
+            
+            # Desplegar stable (versión anterior/base)
+            VERSION=${VERSION}-stable docker compose up -d app-stable
+            echo "✅ Versión stable desplegada en puerto 8080"
+            sleep 20
+          else
+            echo "✅ Versión stable ya está activa en puerto 8080"
+          fi
+          
+          # Levantar Canary con Docker Compose (nueva versión)
           VERSION=$VERSION docker compose --profile canary up -d app-canary
           
           echo "✅ Versión Canary desplegada en puerto 8081"
-          echo "🔗 URL Canary: http://localhost:8081"
+          echo "🔗 URL Stable (vieja): http://localhost:8080"
+          echo "🔗 URL Canary (nueva): http://localhost:8081"
 
       - name: ⏳ Esperar inicialización (30 segundos)
         run: |
