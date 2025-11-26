@@ -25,12 +25,10 @@ services:
   # ============================================
   # Aplicación STABLE (Producción)
   # Puerto 8080
+  # Usa la imagen stable (versión actualmente en producción)
   # ============================================
   app-stable:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: serviciudadcali:latest
+    image: serviciudadcali:stable
     container_name: serviciudadcali-stable
     ports:
       - "8080:8080"
@@ -60,11 +58,9 @@ services:
   # ============================================
   # Aplicación CANARY (Testing)
   # Puerto 8081
+  # Usa la imagen canary (versión candidata nueva)
   # ============================================
   app-canary:
-    build:
-      context: .
-      dockerfile: Dockerfile
     image: serviciudadcali:canary
     container_name: serviciudadcali-canary
     ports:

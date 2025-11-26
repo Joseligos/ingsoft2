@@ -1,0 +1,11 @@
+# ==============================================================
+# Docker Compose para BUILD de imagen
+# Uso: docker compose -f docker-compose.build.yml build
+# ==============================================================
+services:
+  app-build:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: serviciudadcali:latest
+    # Este servicio solo se usa para hacer build, no se levanta

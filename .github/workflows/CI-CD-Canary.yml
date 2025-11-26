@@ -146,14 +146,13 @@ jobs:
           cd ServiCiudadCali
           VERSION=${{ needs.build-and-test.outputs.version }}
           
-          # Build con Docker Compose
-          VERSION=$VERSION docker compose build app-stable app-canary
+          # Build con Docker Compose (archivo específico para build)
+          VERSION=$VERSION docker compose -f docker-compose.build.yml build
           
           # Etiquetar con versión y tags adicionales
           docker tag serviciudadcali:latest serviciudadcali:$VERSION
-          docker tag serviciudadcali:latest serviciudadcali:stable
           
-          echo "✅ Imagen Docker creada con tags: stable, $VERSION, latest"
+          echo "✅ Imagen Docker creada: serviciudadcali:latest y serviciudadcali:$VERSION"
 
       - name: 💾 Guardar imagen Docker
         run: |
@@ -311,23 +310,33 @@ jobs:
 
       - name: 🔄 Backup versión actual (Stable)
         run: |
-          # Intentar hacer backup de la versión actual si existe
-          docker tag serviciudadcali:latest serviciudadcali:rollback 2>/dev/null || echo "⚠️  No hay versión anterior para backup"
-          echo "✅ Backup preparado"
+          cd ServiCiudadCali
+          # Si hay un stable corriendo, hacer backup de su imagen
+          if docker compose ps app-stable --format json 2>/dev/null | grep -q "app-stable"; then
+            CURRENT_IMAGE=$(docker inspect serviciudadcali-stable --format='{{.Image}}' 2>/dev/null || echo "")
+            if [ -n "$CURRENT_IMAGE" ]; then
+              docker tag $CURRENT_IMAGE serviciudadcali:rollback
+              echo "✅ Backup de versión actual guardado como serviciudadcali:rollback"
+            else
+              echo "⚠️  No se pudo hacer backup - no hay imagen actual"
+            fi
+          else
+            echo "ℹ️  No hay versión stable previa (primer despliegue)"
+          fi
 
       - name: 🚀 Promover Canary a Producción con Docker Compose
         run: |
           cd ServiCiudadCali
           VERSION=${{ needs.build-and-test.outputs.version }}
           
-          # Detener stable actual
+          # Detener stable actual (versión vieja)
           docker compose stop app-stable 2>/dev/null || true
           docker compose rm -f app-stable 2>/dev/null || true
           
-          # La imagen serviciudadcali:latest ya es la nueva versión
-          # No necesitamos etiquetar desde canary porque ya la tenemos
+          # Etiquetar la nueva imagen para stable
+          docker tag serviciudadcali:latest serviciudadcali:stable
           
-          # Desplegar nueva versión estable con Docker Compose
+          # Desplegar NUEVA versión como stable con Docker Compose
           VERSION=$VERSION docker compose up -d app-stable
           
           echo "✅ Nueva versión promovida a producción en puerto 8080"
